@@ -1,0 +1,271 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id         Int      @id @default(autoincrement())
+  name       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  image_url  String?
+
+  users       User[]
+  clients     Client[]
+  riders      Rider[]
+  partners    Partner[]
+  jobs        Job[]
+  expenses    Expense[]
+  audit_logs  AuditLog[]
+  invitations Invitation[]
+
+  @@map("accounts")
+}
+
+model User {
+  id         Int      @id @default(autoincrement())
+  account_id Int
+  clerk_id   String   @unique
+  name       String?
+  email      String?
+  image_url  String?
+  role       UserRole @default(staff)
+  created_at DateTime @default(now())
+
+  account          Account      @relation(fields: [account_id], references: [id])
+  clients          Client[]
+  jobs             Job[]
+  expenses         Expense[]
+  audit_logs       AuditLog[]
+  invitations_sent Invitation[]
+
+  @@map("users")
+}
+
+model Client {
+  id         Int      @id @default(autoincrement())
+  account_id Int
+  user_id    Int
+  name       String
+  phone      String?
+  notes      String?
+  created_at DateTime @default(now())
+
+  account  Account   @relation(fields: [account_id], references: [id])
+  user     User      @relation(fields: [user_id], references: [id])
+  jobs     Job[]
+  expenses Expense[]
+
+  @@index([account_id, name])
+  @@map("clients")
+}
+
+model Rider {
+  id         Int      @id @default(autoincrement())
+  account_id Int
+  name       String
+  phone      String?
+  image_url  String?
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  account  Account   @relation(fields: [account_id], references: [id])
+  jobs     Job[]
+  expenses Expense[]
+
+  @@index([account_id])
+  @@map("riders")
+}
+
+model Partner {
+  id         Int      @id @default(autoincrement())
+  account_id Int
+  name       String
+  phone      String?
+  email      String?
+  notes      String?
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  account Account @relation(fields: [account_id], references: [id])
+  jobs    Job[]
+
+  @@unique([account_id, name])
+  @@index([account_id, active, name])
+  @@map("partners")
+}
+
+model Job {
+  id                    Int       @id @default(autoincrement())
+  account_id            Int
+  user_id               Int
+  client_id             Int
+  rider_id              Int?
+  partner_id            Int?
+  status                JobStatus @default(pending)
+  pickup                String
+  dropoff               String
+  description           String?
+  job_date              DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  office_fee            Int
+  sublet_name           String?
+  sublet_amount         Int       @default(0)
+  park_waybill          Int       @default(0)
+  partner_name_snapshot String?   @map("partner_name")
+  partner_amount        Int       @default(0)
+  total                 Int
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  account  Account   @relation(fields: [account_id], references: [id])
+  user     User      @relation(fields: [user_id], references: [id])
+  client   Client    @relation(fields: [client_id], references: [id])
+  rider    Rider?    @relation(fields: [rider_id], references: [id])
+  partner  Partner?  @relation(fields: [partner_id], references: [id], onDelete: Restrict)
+  payments Payment[]
+  expenses Expense[]
+
+  @@index([account_id, job_date])
+  @@index([account_id, status])
+  @@index([client_id])
+  @@index([rider_id])
+  @@index([partner_id])
+  @@map("jobs")
+}
+
+model Payment {
+  id         Int         @id @default(autoincrement())
+  job_id     Int
+  type       PaymentType @default(payment)
+  amount     Int
+  mode       PayMode
+  bank_name  String?
+  note       String?
+  reference  String?
+  paid_at    DateTime    @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at DateTime    @default(now())
+
+  job Job @relation(fields: [job_id], references: [id])
+
+  @@index([job_id])
+  @@map("payments")
+}
+
+model Expense {
+  id           Int          @id @default(autoincrement())
+  account_id   Int
+  user_id      Int
+  expense_date DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
+  description  String
+  amount       Int
+  mode         PayMode
+  note         String?
+  bank_name    String?
+  owner        ExpenseOwner
+  rider_id     Int?
+  client_id    Int?
+  job_id       Int?
+  created_at   DateTime     @default(now())
+
+  account Account @relation(fields: [account_id], references: [id])
+  user    User    @relation(fields: [user_id], references: [id])
+  rider   Rider?  @relation(fields: [rider_id], references: [id])
+  client  Client? @relation(fields: [client_id], references: [id])
+  job     Job?    @relation(fields: [job_id], references: [id])
+
+  @@index([account_id, expense_date])
+  @@index([job_id])
+  @@map("expenses")
+}
+
+model AuditLog {
+  id         Int         @id @default(autoincrement())
+  account_id Int
+  user_id    Int
+  table_name String
+  record_id  Int
+  action     AuditAction
+  before     Json?
+  after      Json?
+  created_at DateTime    @default(now())
+
+  account Account @relation(fields: [account_id], references: [id])
+  user    User    @relation(fields: [user_id], references: [id])
+
+  @@index([account_id, created_at])
+  @@index([table_name, record_id])
+  @@map("audit_logs")
+}
+
+model Invitation {
+  id            Int              @id @default(autoincrement())
+  account_id    Int
+  invited_by_id Int
+  email         String
+  role          UserRole         @default(staff)
+  token         String           @unique
+  status        InvitationStatus @default(pending)
+  expires_at    DateTime
+  accepted_at   DateTime?
+  created_at    DateTime         @default(now())
+
+  account    Account @relation(fields: [account_id], references: [id])
+  invited_by User    @relation(fields: [invited_by_id], references: [id])
+
+  @@index([email])
+  @@index([account_id, status])
+  @@map("invitations")
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+enum JobStatus {
+  pending
+  picked_up
+  delivered
+  failed
+  cancelled
+}
+
+enum PaymentType {
+  payment
+  refund
+}
+
+enum PayMode {
+  cash
+  transfer
+}
+
+enum ExpenseOwner {
+  rider
+  office
+  client
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+}
+
+enum UserRole {
+  admin
+  staff
+}
