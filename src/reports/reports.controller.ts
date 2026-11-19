@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user-decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 import { ClientStatementDto } from './dto/client-statement.dto.js';
@@ -17,6 +18,22 @@ export class ReportsController {
     @Query() query: DailyReportDto,
   ) {
     return this.reports.daily(user, query);
+  }
+
+  @Get('daily/export')
+  async exportDaily(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: DailyReportDto,
+    @Res() response: Response,
+  ) {
+    const { date, buffer } = await this.reports.dailyExcel(user, query);
+    response
+      .set({
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="daily-report-${date}.xlsx"`,
+      })
+      .send(buffer);
   }
 
   @Get('income')

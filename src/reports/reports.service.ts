@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ClientStatementDto } from './dto/client-statement.dto.js';
@@ -50,6 +51,216 @@ function mapTotals(row: ReportRow | undefined, fields: string[]) {
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async dailyExcel(user: AuthenticatedUser, query: DailyReportDto) {
+    const date = query.date ?? lagosDate();
+    const day = new Date(`${date}T00:00:00.000Z`);
+    const [payments, expenses] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: {
+          paid_at: day,
+          job: { account_id: user.accountId },
+        },
+        include: {
+          job: {
+            include: {
+              client: { select: { name: true } },
+              rider: { select: { name: true } },
+              partner: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+      }),
+      this.prisma.expense.findMany({
+        where: { account_id: user.accountId, expense_date: day },
+        include: {
+          rider: { select: { name: true } },
+          client: { select: { name: true } },
+          job: {
+            include: {
+              client: { select: { name: true } },
+              rider: { select: { name: true } },
+              partner: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+
+    type SheetRow = {
+      clientName: string;
+      route: string;
+      income: number;
+      paymentModes: Set<string>;
+      riderName: string;
+      riderIncome: number;
+      sublet: number;
+      park: number;
+      officeIncome: number;
+      partnerName: string;
+      partnerAmount: number;
+      expenseDescriptions: string[];
+      expenseModes: Set<string>;
+      riderExpenses: number;
+      officeExpenses: number;
+      partnerExpenses: number;
+    };
+
+    const rowsByJob = new Map<number, SheetRow>();
+    const newRow = (
+      job?: (typeof payments)[number]['job'] | NonNullable<(typeof expenses)[number]['job']>,
+    ): SheetRow => ({
+      clientName: job
+        ? job.sublet_name
+          ? `Commission (${job.client.name})`
+          : job.client.name
+        : '',
+      route: job ? `${job.pickup} → ${job.dropoff}` : '',
+      income: 0,
+      paymentModes: new Set<string>(),
+      riderName: job?.rider?.name ?? '',
+      riderIncome: job?.rider_id && !job.sublet_name ? job.office_fee : 0,
+      sublet: job?.sublet_amount ?? 0,
+      park: job?.park_waybill ?? 0,
+      officeIncome:
+        job && (!job.rider_id || job.sublet_name) ? job.office_fee : 0,
+      partnerName: job?.partner?.name ?? job?.partner_name_snapshot ?? '',
+      partnerAmount: job?.partner_amount ?? 0,
+      expenseDescriptions: [],
+      expenseModes: new Set<string>(),
+      riderExpenses: 0,
+      officeExpenses: 0,
+      partnerExpenses: 0,
+    });
+
+    const getJobRow = (
+      job: (typeof payments)[number]['job'] | NonNullable<(typeof expenses)[number]['job']>,
+    ) => {
+      let row = rowsByJob.get(job.id);
+      if (!row) {
+        row = newRow(job);
+        rowsByJob.set(job.id, row);
+      }
+      return row;
+    };
+
+    for (const payment of payments) {
+      const row = getJobRow(payment.job);
+      row.income += payment.type === 'payment' ? payment.amount : -payment.amount;
+      row.paymentModes.add(
+        payment.mode === 'transfer'
+          ? payment.bank_name?.trim() || 'Transfer'
+          : 'Cash',
+      );
+    }
+
+    const unlinkedExpenses: typeof expenses = [];
+    for (const expense of expenses) {
+      if (!expense.job) {
+        unlinkedExpenses.push(expense);
+        continue;
+      }
+      const row = getJobRow(expense.job);
+      row.expenseDescriptions.push(expense.description);
+      row.expenseModes.add(
+        expense.mode === 'transfer'
+          ? expense.bank_name?.trim() || 'Transfer'
+          : 'Cash',
+      );
+      if (expense.owner === 'rider') row.riderExpenses += expense.amount;
+      else if (expense.owner === 'office') row.officeExpenses += expense.amount;
+      else row.partnerExpenses += expense.amount;
+    }
+
+    if (unlinkedExpenses.length > 0) {
+      const row = newRow();
+      for (const expense of unlinkedExpenses) {
+        const ownerName =
+          expense.owner === 'rider'
+            ? expense.rider?.name
+            : expense.owner === 'client'
+              ? expense.client?.name
+              : undefined;
+        row.expenseDescriptions.push(
+          ownerName
+            ? `${expense.description} (${ownerName})`
+            : expense.description,
+        );
+        row.expenseModes.add(
+          expense.mode === 'transfer'
+            ? expense.bank_name?.trim() || 'Transfer'
+            : 'Cash',
+        );
+        if (expense.owner === 'rider') row.riderExpenses += expense.amount;
+        else if (expense.owner === 'office') row.officeExpenses += expense.amount;
+        else row.partnerExpenses += expense.amount;
+      }
+      rowsByJob.set(-1, row);
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Daily Sheet');
+    worksheet.addRow([
+      'Date',
+      'Client name',
+      'Route',
+      'Income',
+      'Mode of payment',
+      'Rider',
+      'Rider income',
+      'Sublet',
+      'Park',
+      'Office income',
+      'Partner',
+      'Partner amount',
+      'Description of expenses',
+      'Expense mode',
+      'Rider expenses',
+      'Office expenses',
+      'Partner/client expenses',
+    ]);
+
+    for (const row of rowsByJob.values()) {
+      worksheet.addRow([
+        date,
+        row.clientName,
+        row.route,
+        row.income,
+        [...row.paymentModes].join(', '),
+        row.riderName,
+        row.riderIncome,
+        row.sublet,
+        row.park,
+        row.officeIncome,
+        row.partnerName,
+        row.partnerAmount,
+        row.expenseDescriptions.join(', '),
+        [...row.expenseModes].join(', '),
+        row.riderExpenses,
+        row.officeExpenses,
+        row.partnerExpenses,
+      ]);
+    }
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    worksheet.columns.forEach((column) => {
+      column.width = 18;
+    });
+    worksheet.getColumn('B').width = 28;
+    worksheet.getColumn('C').width = 28;
+    worksheet.getColumn('M').width = 40;
+    worksheet.getColumn('E').width = 24;
+    worksheet.getColumn('N').width = 24;
+    for (const column of ['D', 'G', 'H', 'I', 'J', 'L', 'O', 'P', 'Q']) {
+      worksheet.getColumn(column).numFmt = '#,##0;[Red]-#,##0';
+    }
+
+    const output = await workbook.xlsx.writeBuffer();
+    return { date, buffer: Buffer.from(output) };
+  }
 
   async daily(user: AuthenticatedUser, query: DailyReportDto) {
     const date = query.date ?? lagosDate();

@@ -721,6 +721,35 @@ All reports are scoped to the current account. Optional `start_date` and `end_da
 
 Fee aggregates exclude cancelled jobs. Counts include all jobs for the date.
 
+### `GET /reports/daily/export?date=2026-11-18`
+
+Downloads the daily cash-and-expense sheet as an `.xlsx` file. `date` is optional and defaults to today's date in `Africa/Lagos`.
+
+The sheet has one row per job with a payment/refund or linked expense on the selected date. Jobs with no linked job transaction are not included. Unlinked expenses are grouped into a separate expense-only row. `Income` is payments received on the selected date minus refunds issued on that date, so refunds reduce income and may produce a negative daily amount. A payment mode displays the transfer bank name when available, otherwise `Transfer` or `Cash`; multiple modes are comma-separated.
+
+The job allocation columns show the job's fee breakdown: `office_fee` is shown as `Rider income` when a rider is assigned to a non-sublet job, and as `Office income` for sublet jobs or jobs without a rider. Sublet, park, and partner amounts are reported from the job. The client label for a sublet job is `Commission (Client name)`. Expenses use their `expense_date`; their descriptions and modes are comma-separated. Rider-owned expenses appear under `Rider expenses`, office-owned under `Office expenses`, and client-owned under `Partner/client expenses`.
+
+**Response:** Binary Excel workbook with `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` and a filename such as `daily-report-2026-11-18.xlsx`.
+
+**Frontend download example**
+
+```typescript
+const response = await fetch(
+  `${API_URL}/reports/daily/export?date=2026-11-18`,
+  { headers: { Authorization: `Bearer ${clerkSessionToken}` } },
+);
+
+if (!response.ok) throw new Error('Could not download daily report');
+
+const file = await response.blob();
+const url = URL.createObjectURL(file);
+const link = document.createElement('a');
+link.href = url;
+link.download = 'daily-report-2026-11-18.xlsx';
+link.click();
+URL.revokeObjectURL(url);
+```
+
 ### `GET /reports/income`
 
 Optional query parameters: `start_date`, `end_date`. Sums office fees only for non-cancelled jobs.

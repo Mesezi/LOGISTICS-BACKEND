@@ -3,12 +3,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 import { ReportsService } from './reports.service.js';
+import ExcelJS from 'exceljs';
 
 describe('ReportsService', () => {
   let service: ReportsService;
   const prisma = {
     $queryRaw: vi.fn(),
     client: { findFirst: vi.fn() },
+    payment: { findMany: vi.fn() },
+    expense: { findMany: vi.fn() },
   };
   const user: AuthenticatedUser = {
     userId: 7,
@@ -61,6 +64,148 @@ describe('ReportsService', () => {
       refundsIssued: 100,
       expenses: 50,
     });
+  });
+
+  it('exports daily payments net of refunds and separates expense categories', async () => {
+    prisma.payment.findMany.mockResolvedValue([
+      {
+        type: 'payment',
+        amount: 5000,
+        mode: 'transfer',
+        bank_name: 'FCMB',
+        job: {
+          id: 21,
+          client: { name: 'Example Client' },
+          rider: { name: 'Rider One' },
+          partner: null,
+          partner_name_snapshot: null,
+          rider_id: 4,
+          pickup: 'Ikeja',
+          dropoff: 'Lekki',
+          sublet_name: null,
+          sublet_amount: 0,
+          park_waybill: 500,
+          office_fee: 4500,
+          partner_amount: 0,
+        },
+      },
+      {
+        type: 'refund',
+        amount: 1000,
+        mode: 'cash',
+        bank_name: null,
+        job: {
+          id: 21,
+          client: { name: 'Example Client' },
+          rider: { name: 'Rider One' },
+          partner: null,
+          partner_name_snapshot: null,
+          rider_id: 4,
+          pickup: 'Ikeja',
+          dropoff: 'Lekki',
+          sublet_name: null,
+          sublet_amount: 0,
+          park_waybill: 500,
+          office_fee: 4500,
+          partner_amount: 0,
+        },
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        description: 'Fuel',
+        amount: 700,
+        mode: 'cash',
+        bank_name: null,
+        owner: 'rider',
+        rider: { name: 'Rider One' },
+        client: null,
+        job: {
+          id: 21,
+          client: { name: 'Example Client' },
+          rider: { name: 'Rider One' },
+          partner: null,
+          partner_name_snapshot: null,
+          rider_id: 4,
+          pickup: 'Ikeja',
+          dropoff: 'Lekki',
+          sublet_name: null,
+          sublet_amount: 0,
+          park_waybill: 500,
+          office_fee: 4500,
+          partner_amount: 0,
+        },
+      },
+      {
+        description: 'Office internet',
+        amount: 2000,
+        mode: 'transfer',
+        bank_name: 'KUDA',
+        owner: 'office',
+        rider: null,
+        client: null,
+        job: null,
+      },
+    ]);
+
+    const { date, buffer } = await service.dailyExcel(user, {
+      date: '2026-11-18',
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.getWorksheet('Daily Sheet');
+
+    expect(date).toBe('2026-11-18');
+    expect(sheet?.getRow(1).values).toEqual(
+      expect.arrayContaining(['Income', 'Rider expenses', 'Office expenses']),
+    );
+    expect(sheet?.getRow(2).values).toEqual(
+      expect.arrayContaining([
+        '2026-11-18',
+        'Example Client',
+        'Ikeja → Lekki',
+        -1000 + 5000,
+        'FCMB, Cash',
+        'Rider One',
+        4500,
+        0,
+        500,
+        0,
+        '',
+        0,
+        'Fuel',
+        'Cash',
+        700,
+        0,
+        0,
+      ]),
+    );
+    expect(sheet?.getRow(3).values).toEqual(
+      expect.arrayContaining([
+        'Office internet',
+        'KUDA',
+        0,
+        2000,
+        0,
+      ]),
+    );
+
+    expect(prisma.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          paid_at: new Date('2026-11-18T00:00:00.000Z'),
+          job: { account_id: 3 },
+        },
+      }),
+    );
+    expect(prisma.expense.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          account_id: 3,
+          expense_date: new Date('2026-11-18T00:00:00.000Z'),
+        },
+      }),
+    );
   });
 
   it('rejects invalid date ranges before querying reports', async () => {
