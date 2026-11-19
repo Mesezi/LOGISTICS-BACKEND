@@ -35,6 +35,8 @@ When the server is running, Swagger UI is available at `http://localhost:8000/ap
 $ npm install
 ```
 
+Set `FRONTEND_ORIGINS` to a comma-separated list of allowed frontend origins, for example `http://localhost:3000,https://app.example.com`. In production, configure this variable in the API hosting provider's environment settings. Origins must include the scheme and must not include a path or trailing slash.
+
 ## Compile and run the project
 
 ```bash
