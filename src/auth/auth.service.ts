@@ -43,10 +43,18 @@ constructor(configService: ConfigService, private readonly prisma: PrismaService
       throw new Error('CLERK_SECRET_KEY is not configured');
     }
 
+    const authorizedParties = (
+      this.configService.get<string>('FRONTEND_ORIGINS') ??
+      'http://localhost:3000'
+    )
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+
     try {
       const claims = await verifyToken(token, {
         secretKey,
-        authorizedParties: ['http://localhost:3000'],
+        authorizedParties,
       });
 
       if (!claims.sub) {
