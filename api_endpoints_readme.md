@@ -485,16 +485,14 @@ For a job without a partner, omit all partner fields:
 
 ### `PATCH /jobs/:id`
 
-Update job fields, including `partner_id` and `partner_amount`. Set `partner_id` to `null` to remove the partner assignment; if `partner_amount` is omitted when removing the partner, it is reset to zero. Fee changes recalculate `total`; a cancelled job cannot be updated, and the total cannot be lowered below the amount already received. Patch fields are optional.
+Update job fields, including `status`, `partner_id`, and `partner_amount`. Valid status values are `pending`, `picked_up`, `delivered`, `failed`, and `cancelled`; use `POST /jobs/:id/cancel` for cancellation so the refund behavior is applied. Set `partner_id` to `null` to remove the partner assignment; if `partner_amount` is omitted when removing the partner, it is reset to zero. Fee changes recalculate `total`; a cancelled job cannot be updated, and the total cannot be lowered below the amount already received. Patch fields are optional.
 
 **Request example**
 
 ```json
 {
   "client_id": 12,
-  "pickup": "Yaba",
-  "dropoff": "Lekki",
-  "office_fee": 6000
+  "status": "picked_up"
 }
 ```
 

@@ -295,6 +295,12 @@ export class JobsService {
   }
 
   async update(id: number, user: AuthenticatedUser, dto: UpdateJobDto) {
+    if (dto.status === 'cancelled') {
+      throw new BadRequestException(
+        'Use POST /jobs/:id/cancel to cancel a job',
+      );
+    }
+
     const existing = await this.prisma.job.findFirst({
       where: { id, account_id: user.accountId },
       include: { payments: true },
@@ -359,6 +365,7 @@ export class JobsService {
       data: {
         client_id: dto.client_id,
         rider_id: dto.rider_id,
+        status: dto.status,
         pickup: dto.pickup,
         dropoff: dto.dropoff,
         description: dto.description,

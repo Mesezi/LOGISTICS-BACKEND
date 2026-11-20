@@ -11,7 +11,7 @@ describe('JobsService partner assignment', () => {
     client: { findFirst: vi.fn(), create: vi.fn() },
     rider: { findFirst: vi.fn() },
     partner: { findFirst: vi.fn(), create: vi.fn() },
-    job: { create: vi.fn() },
+    job: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   };
   const user: AuthenticatedUser = {
     userId: 7,
@@ -30,6 +30,20 @@ describe('JobsService partner assignment', () => {
     prisma.partner.findFirst.mockResolvedValue({ id: 9, name: 'Partner A' });
     prisma.partner.create.mockResolvedValue({ id: 10, name: 'New Partner' });
     prisma.job.create.mockResolvedValue({ id: 21 });
+    prisma.job.findFirst.mockResolvedValue({
+      id: 21,
+      account_id: 3,
+      status: 'pending',
+      office_fee: 5000,
+      sublet_name: null,
+      sublet_amount: 0,
+      park_waybill: 0,
+      partner_id: null,
+      partner_amount: 0,
+      rider_id: null,
+      payments: [],
+    });
+    prisma.job.update.mockResolvedValue({ id: 21, status: 'picked_up' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [JobsService, { provide: PrismaService, useValue: prisma }],
@@ -175,5 +189,25 @@ describe('JobsService partner assignment', () => {
     ).rejects.toThrow(BadRequestException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('updates a job status through PATCH', async () => {
+    await service.update(21, user, { status: 'picked_up' });
+
+    expect(prisma.job.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 21 },
+        data: expect.objectContaining({ status: 'picked_up' }),
+      }),
+    );
+  });
+
+  it('requires the cancel endpoint to cancel a job', async () => {
+    await expect(
+      service.update(21, user, { status: 'cancelled' }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.job.findFirst).not.toHaveBeenCalled();
+    expect(prisma.job.update).not.toHaveBeenCalled();
   });
 });
