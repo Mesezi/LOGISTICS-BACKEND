@@ -29,7 +29,10 @@ function validateJobRules(dto: Partial<CreateJobDto>) {
   const hasSublet = !!(dto.sublet_name || (dto.sublet_amount ?? 0) > 0);
   const hasPartner = dto.partner_id != null || dto.partner != null;
 
-  if (dto.sublet_name && !dto.sublet_amount) {
+  if (
+    dto.sublet_name &&
+    (dto.sublet_amount === undefined || dto.sublet_amount === null)
+  ) {
     throw new BadRequestException(
       'sublet_amount is required when sublet_name is provided',
     );

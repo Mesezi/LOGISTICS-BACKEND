@@ -108,6 +108,41 @@ describe('JobsService partner assignment', () => {
     expect(prisma.job.create).not.toHaveBeenCalled();
   });
 
+  it('allows a named sublet with a zero amount', async () => {
+    await service.create(user, {
+      client_id: 12,
+      pickup: 'Ikeja',
+      dropoff: 'Lekki',
+      office_fee: 5000,
+      sublet_name: 'Sublet A',
+      sublet_amount: 0,
+    });
+
+    expect(prisma.job.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sublet_name: 'Sublet A',
+          sublet_amount: 0,
+          total: 5000,
+        }),
+      }),
+    );
+  });
+
+  it('requires a sublet amount when a sublet name is provided', async () => {
+    await expect(
+      service.create(user, {
+        client_id: 12,
+        pickup: 'Ikeja',
+        dropoff: 'Lekki',
+        office_fee: 5000,
+        sublet_name: 'Sublet A',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
   it('creates a client and partner with the job in the same transaction', async () => {
     await service.create(user, {
       client: {
